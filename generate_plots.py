@@ -46,24 +46,59 @@ def extract_test_data(data, test_prefix, metric_key):
         metric_key: The metric to extract (e.g., 'speed_bytes_per_sec', 'iops')
     
     Returns:
-        Dictionary mapping num_files to list of values
+        Dictionary mapping file_size to list of values
     """
     results = {}
     aggregated_stats = data.get('aggregated_statistics', {})
     
     for test_name, test_data in aggregated_stats.items():
         if test_name.startswith(test_prefix):
-            # Get number of files
-            num_files = test_data.get('num_files', {}).get('mean', 0)
+            # Get file size from test data if available
+            file_size_data = test_data.get('file_size', {})
+            if isinstance(file_size_data, dict) and file_size_data:
+                file_size = file_size_data.get('mean', 0)
+            else:
+                # If not in data, extract from test name
+                # Test name format: prefix_filesize (e.g., 'seq_write_10240')
+                try:
+                    file_size = int(test_name.replace(test_prefix, ''))
+                except (ValueError, AttributeError):
+                    print(f"Warning: Could not extract file size from test name: {test_name}")
+                    continue
             
             # Get the metric values
             metric_data = test_data.get(metric_key, {})
             values = metric_data.get('values', [])
             
-            if values:
-                results[int(num_files)] = values
+            if values and file_size > 0:
+                results[int(file_size)] = values
+            elif not values:
+                print(f"Warning: No values found for {test_name} with metric {metric_key}")
     
     return results
+
+def format_file_size(size_bytes):
+    """
+    Format file size in human-readable format.
+    
+    Args:
+        size_bytes: Size in bytes
+    
+    Returns:
+        Formatted string (e.g., '10 KB', '1 MB', '500 MB')
+    """
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes // 1024} KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        mb = size_bytes / (1024 * 1024)
+        if mb >= 100:
+            return f"{int(mb)} MB"
+        else:
+            return f"{mb:.1f} MB"
+    else:
+        return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
 
 def extract_file_operation_data(data, operation_type, metric_key):
     """
@@ -90,20 +125,21 @@ def extract_file_operation_data(data, operation_type, metric_key):
     
     return {}
 
-def create_box_plot(all_data, title, ylabel, xlabel, output_filename):
+def create_box_plot(all_data, title, ylabel, xlabel, output_filename, format_x_as_filesize=False):
     """
     Create a box and whisker plot from the data.
     
     Args:
-        all_data: Dictionary mapping test_name -> {num_files: [values]}
+        all_data: Dictionary mapping test_name -> {file_size/num_files: [values]}
         title: Plot title
         ylabel: Y-axis label
         xlabel: X-axis label
         output_filename: Output file path
+        format_x_as_filesize: If True, format x-axis labels as file sizes
     """
     fig, ax = plt.subplots(figsize=(12, 7))
     
-    # Get all unique x-positions (num_files) across all tests
+    # Get all unique x-positions (file_size or num_files) across all tests
     all_x_positions = set()
     for test_data in all_data.values():
         all_x_positions.update(test_data.keys())
@@ -142,7 +178,10 @@ def create_box_plot(all_data, title, ylabel, xlabel, output_filename):
     
     # Set x-axis ticks
     ax.set_xticks(range(len(x_positions)))
-    ax.set_xticklabels([str(x) for x in x_positions])
+    if format_x_as_filesize:
+        ax.set_xticklabels([format_file_size(x) for x in x_positions], rotation=45, ha='right')
+    else:
+        ax.set_xticklabels([str(x) for x in x_positions])
     
     # Add legend
     ax.legend(loc='best', fontsize=10)
@@ -189,8 +228,9 @@ def main():
         seq_write_data,
         "Sequential Write Performance",
         "Speed (MB/s)",
-        "Number of Files",
-        output_folder / "sequential_write_performance.png"
+        "File Size",
+        output_folder / "sequential_write_performance.png",
+        format_x_as_filesize=True
     )
     
     # 2. Sequential Read Performance (MB/s)
@@ -206,56 +246,41 @@ def main():
         seq_read_data,
         "Sequential Read Performance",
         "Speed (MB/s)",
-        "Number of Files",
-        output_folder / "sequential_read_performance.png"
+        "File Size",
+        output_folder / "sequential_read_performance.png",
+        format_x_as_filesize=True
     )
     
     # 3. Random Write Test (IOPS)
     rand_write_data = {}
     for data in json_data_list:
         test_name = data.get('name', 'Unknown')
-        # For random write, we use operations as the "number of files" equivalent
-        test_data = extract_test_data(data, 'rand_write_', 'iops')
-        if test_data:
-            # Use operations count instead of num_files for random tests
-            aggregated_stats = data.get('aggregated_statistics', {})
-            rand_write_ops = {}
-            for test_name_key, test_vals in aggregated_stats.items():
-                if test_name_key.startswith('rand_write_'):
-                    ops = test_vals.get('operations', {}).get('mean', 0)
-                    iops_values = test_vals.get('iops', {}).get('values', [])
-                    if iops_values:
-                        rand_write_ops[int(ops)] = iops_values
-            rand_write_data[test_name] = rand_write_ops
+        # For random write, extract file size from test name
+        rand_write_data[test_name] = extract_test_data(data, 'rand_write_', 'iops')
     
     create_box_plot(
         rand_write_data,
         "Random Write Performance",
         "IOPS",
-        "Number of Operations",
-        output_folder / "random_write_performance.png"
+        "File Size",
+        output_folder / "random_write_performance.png",
+        format_x_as_filesize=True
     )
     
     # 4. Random Read Test (IOPS)
     rand_read_data = {}
     for data in json_data_list:
         test_name = data.get('name', 'Unknown')
-        aggregated_stats = data.get('aggregated_statistics', {})
-        rand_read_ops = {}
-        for test_name_key, test_vals in aggregated_stats.items():
-            if test_name_key.startswith('rand_read_'):
-                ops = test_vals.get('operations', {}).get('mean', 0)
-                iops_values = test_vals.get('iops', {}).get('values', [])
-                if iops_values:
-                    rand_read_ops[int(ops)] = iops_values
-        rand_read_data[test_name] = rand_read_ops
+        # For random read, extract file size from test name
+        rand_read_data[test_name] = extract_test_data(data, 'rand_read_', 'iops')
     
     create_box_plot(
         rand_read_data,
         "Random Read Performance",
         "IOPS",
-        "Number of Operations",
-        output_folder / "random_read_performance.png"
+        "File Size",
+        output_folder / "random_read_performance.png",
+        format_x_as_filesize=True
     )
     
     # 5. File Creation Performance

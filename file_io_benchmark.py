@@ -11,8 +11,9 @@ import time
 import shutil
 import random
 import statistics
+import subprocess
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 import json
 
 
@@ -22,6 +23,7 @@ class FileIOBenchmark:
         self.data_size_gb = data_size_gb
         self.results = {}
         self.all_runs = []  # Store results from all runs
+        self.cache_dir = Path("benchmark_cache")  # Directory for offline caches
         
     def setup(self):
         """Create test directory"""
@@ -211,6 +213,364 @@ class FileIOBenchmark:
             'avg_time_per_file_ms': (elapsed / actual_count * 1000) if actual_count > 0 else 0
         }
     
+    def _run_command(self, cmd: List[str], cwd: Optional[Path] = None, 
+                     env: Optional[Dict] = None) -> Tuple[bool, str, float]:
+        """Run a shell command and return success status, output, and duration"""
+        start_time = time.time()
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=cwd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+            elapsed = time.time() - start_time
+            success = result.returncode == 0
+            output = result.stdout + result.stderr
+            return success, output, elapsed
+        except subprocess.TimeoutExpired:
+            elapsed = time.time() - start_time
+            return False, "Command timed out", elapsed
+        except Exception as e:
+            elapsed = time.time() - start_time
+            return False, str(e), elapsed
+    
+    def _count_files_recursive(self, directory: Path) -> int:
+        """Count all files recursively in a directory"""
+        count = 0
+        try:
+            for item in directory.rglob('*'):
+                if item.is_file():
+                    count += 1
+        except Exception:
+            pass
+        return count
+    
+    def _get_directory_size(self, directory: Path) -> int:
+        """Get total size of all files in a directory recursively"""
+        total_size = 0
+        try:
+            for item in directory.rglob('*'):
+                if item.is_file():
+                    total_size += item.stat().st_size
+        except Exception:
+            pass
+        return total_size
+    
+    def setup_npm_cache(self) -> bool:
+        """Setup npm offline cache. Run this once with internet connection."""
+        print("\n" + "=" * 70)
+        print("SETTING UP NPM OFFLINE CACHE")
+        print("=" * 70)
+        
+        # Check if npm is available
+        success, output, _ = self._run_command(['npm', '--version'])
+        if not success:
+            print("npm is not installed. Skipping npm cache setup.")
+            return False
+        
+        npm_cache_dir = self.cache_dir / "npm_cache"
+        npm_test_dir = self.cache_dir / "npm_test_project"
+        
+        # Create cache directory
+        self.cache_dir.mkdir(exist_ok=True)
+        
+        # Clean up old test directory if it exists
+        if npm_test_dir.exists():
+            shutil.rmtree(npm_test_dir)
+        
+        npm_test_dir.mkdir(parents=True)
+        
+        # Create a package.json with popular packages
+        package_json = {
+            "name": "benchmark-test",
+            "version": "1.0.0",
+            "dependencies": {
+                "express": "4.18.2",
+                "lodash": "4.17.21",
+                "axios": "1.6.0",
+                "react": "18.2.0",
+                "react-dom": "18.2.0",
+                "@angular/core": "17.0.0",
+                "@angular/common": "17.0.0",
+                "@angular/platform-browser": "17.0.0",
+                "vue": "3.3.8",
+                "next": "14.0.3",
+                "typescript": "5.3.2",
+                "webpack": "5.89.0",
+                "eslint": "8.54.0",
+                "jest": "29.7.0",
+                "@babel/core": "7.23.5",
+                "prettier": "3.1.0",
+                "tailwindcss": "3.3.5"
+            }
+        }
+        
+        with open(npm_test_dir / "package.json", 'w') as f:
+            json.dump(package_json, f, indent=2)
+        
+        print("\nInstalling packages to create cache...")
+        print(f"Cache directory: {npm_cache_dir.absolute()}")
+        
+        # Set up custom cache directory and install
+        env = os.environ.copy()
+        env['npm_config_cache'] = str(npm_cache_dir.absolute())
+        
+        success, output, duration = self._run_command(
+            ['npm', 'install'],
+            cwd=npm_test_dir,
+            env=env
+        )
+        
+        if success:
+            print(f"✓ npm cache created successfully in {duration:.2f} seconds")
+            
+            # Verify package-lock.json was created
+            if (npm_test_dir / "package-lock.json").exists():
+                print("✓ package-lock.json created")
+            
+            # Count cached files
+            if npm_cache_dir.exists():
+                cached_files = self._count_files_recursive(npm_cache_dir)
+                cache_size = self._get_directory_size(npm_cache_dir)
+                print(f"✓ Cache contains {cached_files} files ({self._format_size(cache_size)})")
+            
+            # Clean up node_modules but keep package.json and package-lock.json
+            if (npm_test_dir / "node_modules").exists():
+                shutil.rmtree(npm_test_dir / "node_modules")
+            
+            return True
+        else:
+            print(f"✗ Failed to create npm cache: {output}")
+            return False
+    
+    def test_npm_install_offline(self) -> Optional[Dict]:
+        """Test npm install using offline cache"""
+        npm_cache_dir = self.cache_dir / "npm_cache"
+        npm_test_project = self.cache_dir / "npm_test_project"
+        
+        # Check if cache exists
+        if not npm_cache_dir.exists() or not npm_test_project.exists():
+            print("  npm cache not found. Run setup_npm_cache() first.")
+            return None
+        
+        # Check if npm is available
+        success, _, _ = self._run_command(['npm', '--version'])
+        if not success:
+            print("  npm is not installed. Skipping test.")
+            return None
+        
+        # Create test directory
+        test_install_dir = self.test_dir / "npm_install_test"
+        if test_install_dir.exists():
+            shutil.rmtree(test_install_dir)
+        test_install_dir.mkdir(parents=True)
+        
+        # Copy package.json and package-lock.json
+        shutil.copy(npm_test_project / "package.json", test_install_dir)
+        shutil.copy(npm_test_project / "package-lock.json", test_install_dir)
+        
+        # Run npm ci with offline cache
+        env = os.environ.copy()
+        env['npm_config_cache'] = str(npm_cache_dir.absolute())
+        
+        start_time = time.time()
+        success, output, duration = self._run_command(
+            ['npm', 'ci', '--offline', '--prefer-offline'],
+            cwd=test_install_dir,
+            env=env
+        )
+        
+        if not success:
+            # If offline fails, the cache might not be complete
+            print(f"  Warning: npm ci --offline failed, trying --prefer-offline only")
+            success, output, duration = self._run_command(
+                ['npm', 'ci', '--prefer-offline'],
+                cwd=test_install_dir,
+                env=env
+            )
+        
+        elapsed = time.time() - start_time
+        
+        if success:
+            # Count installed files
+            node_modules = test_install_dir / "node_modules"
+            if node_modules.exists():
+                files_created = self._count_files_recursive(node_modules)
+                total_size = self._get_directory_size(node_modules)
+            else:
+                files_created = 0
+                total_size = 0
+            
+            # Clean up
+            shutil.rmtree(test_install_dir)
+            
+            return {
+                'duration_sec': elapsed,
+                'files_created': files_created,
+                'total_bytes': total_size,
+                'total_size_formatted': self._format_size(total_size),
+                'files_per_sec': files_created / elapsed if elapsed > 0 else 0,
+                'speed_bytes_per_sec': total_size / elapsed if elapsed > 0 else 0,
+                'speed_formatted': self._format_speed(total_size / elapsed) if elapsed > 0 else 'N/A'
+            }
+        else:
+            print(f"  npm install failed: {output[:200]}")
+            if test_install_dir.exists():
+                shutil.rmtree(test_install_dir)
+            return None
+    
+    def setup_pip_cache(self) -> bool:
+        """Setup pip offline cache. Run this once with internet connection."""
+        print("\n" + "=" * 70)
+        print("SETTING UP PIP OFFLINE CACHE")
+        print("=" * 70)
+        
+        # Check if pip is available
+        success, output, _ = self._run_command(['pip', '--version'])
+        if not success:
+            print("pip is not installed. Skipping pip cache setup.")
+            return False
+        
+        pip_cache_dir = self.cache_dir / "pip_wheels"
+        
+        # Create cache directory
+        pip_cache_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Download popular packages (compatible with Python 3.12+)
+        packages = [
+            'requests',
+            'flask',
+            'click',
+            'jinja2',
+            'urllib3',
+            'certifi',
+            'charset-normalizer',
+            'idna',
+            'werkzeug',
+            'markupsafe',
+            'itsdangerous',
+            'blinker'
+        ]
+        
+        print(f"\nDownloading packages to: {pip_cache_dir.absolute()}")
+        print(f"Packages: {', '.join(packages)}")
+        
+        cmd = ['pip', 'download', '-d', str(pip_cache_dir)] + packages
+        success, output, duration = self._run_command(cmd)
+        
+        if success:
+            print(f"✓ pip cache created successfully in {duration:.2f} seconds")
+            
+            # Count cached files
+            wheel_files = list(pip_cache_dir.glob('*.whl')) + list(pip_cache_dir.glob('*.tar.gz'))
+            cache_size = sum(f.stat().st_size for f in wheel_files)
+            print(f"✓ Cache contains {len(wheel_files)} package files ({self._format_size(cache_size)})")
+            
+            return True
+        else:
+            print(f"✗ Failed to create pip cache: {output}")
+            return False
+    
+    def test_pip_install_offline(self) -> Optional[Dict]:
+        """Test pip install using offline wheel cache"""
+        pip_cache_dir = self.cache_dir / "pip_wheels"
+        
+        # Check if cache exists
+        if not pip_cache_dir.exists():
+            print("  pip cache not found. Run setup_pip_cache() first.")
+            return None
+        
+        # Check if pip is available
+        success, _, _ = self._run_command(['pip', '--version'])
+        if not success:
+            print("  pip is not installed. Skipping test.")
+            return None
+        
+        # Create a virtual environment for testing
+        venv_dir = self.test_dir / "pip_test_venv"
+        if venv_dir.exists():
+            shutil.rmtree(venv_dir)
+        
+        # Create virtual environment
+        success, output, _ = self._run_command(['python3', '-m', 'venv', str(venv_dir)])
+        if not success:
+            # Check if it's a missing python3-venv issue
+            if 'ensurepip' in output or 'venv' in output:
+                print("  python3-venv is not installed. Install with: sudo apt install python3-venv")
+            else:
+                print(f"  Failed to create virtual environment: {output[:200]}")
+            return None
+        
+        # Determine pip executable path
+        if os.name == 'nt':  # Windows
+            pip_exe = venv_dir / "Scripts" / "pip.exe"
+        else:  # Unix-like
+            pip_exe = venv_dir / "bin" / "pip"
+        
+        if not pip_exe.exists():
+            print(f"  pip executable not found at {pip_exe}")
+            shutil.rmtree(venv_dir)
+            return None
+        
+        # Get list of packages to install
+        packages = [
+            'requests',
+            'flask',
+            'click',
+            'jinja2',
+            'urllib3',
+            'certifi',
+            'charset-normalizer',
+            'idna',
+            'werkzeug',
+            'markupsafe',
+            'itsdangerous',
+            'blinker'
+        ]
+        
+        # Install from local cache
+        cmd = [
+            str(pip_exe), 'install',
+            '--no-index',
+            '--find-links=' + str(pip_cache_dir.absolute())
+        ] + packages
+        
+        start_time = time.time()
+        success, output, _ = self._run_command(cmd)
+        elapsed = time.time() - start_time
+        
+        if success:
+            # Count installed files
+            site_packages = venv_dir / "lib"
+            if site_packages.exists():
+                files_created = self._count_files_recursive(site_packages)
+                total_size = self._get_directory_size(site_packages)
+            else:
+                files_created = 0
+                total_size = 0
+            
+            # Clean up
+            shutil.rmtree(venv_dir)
+            
+            return {
+                'duration_sec': elapsed,
+                'files_created': files_created,
+                'total_bytes': total_size,
+                'total_size_formatted': self._format_size(total_size),
+                'files_per_sec': files_created / elapsed if elapsed > 0 else 0,
+                'speed_bytes_per_sec': total_size / elapsed if elapsed > 0 else 0,
+                'speed_formatted': self._format_speed(total_size / elapsed) if elapsed > 0 else 'N/A',
+                'packages_installed': len(packages)
+            }
+        else:
+            print(f"  pip install failed: {output[:200]}")
+            if venv_dir.exists():
+                shutil.rmtree(venv_dir)
+            return None
+    
     def run_benchmark_suite(self):
         """Run complete benchmark suite"""
         print("=" * 70)
@@ -334,6 +694,36 @@ class FileIOBenchmark:
             print(f"  Files per second: {result['files_per_sec']:.2f}")
             print(f"  Avg time per file: {result['avg_time_per_file_ms']:.3f} ms")
             
+            # Real-world package manager tests
+            print("\n" + "=" * 70)
+            print("REAL-WORLD TESTS (Package Managers)")
+            print("=" * 70)
+            
+            print("\nTesting npm install (offline)...")
+            result = self.test_npm_install_offline()
+            if result:
+                self.results['npm_install'] = result
+                print(f"  Duration: {result['duration_sec']:.3f} seconds")
+                print(f"  Files created: {result['files_created']}")
+                print(f"  Total size: {result['total_size_formatted']}")
+                print(f"  Average speed: {result['speed_formatted']}")
+                print(f"  Files per second: {result['files_per_sec']:.2f}")
+            else:
+                print("  Skipped (cache not available or npm not installed)")
+            
+            print("\nTesting pip install (offline)...")
+            result = self.test_pip_install_offline()
+            if result:
+                self.results['pip_install'] = result
+                print(f"  Duration: {result['duration_sec']:.3f} seconds")
+                print(f"  Files created: {result['files_created']}")
+                print(f"  Packages installed: {result['packages_installed']}")
+                print(f"  Total size: {result['total_size_formatted']}")
+                print(f"  Average speed: {result['speed_formatted']}")
+                print(f"  Files per second: {result['files_per_sec']:.2f}")
+            else:
+                print("  Skipped (cache not available or pip not installed)")
+            
             # Store results from this run
             return self.results
             
@@ -377,6 +767,16 @@ class FileIOBenchmark:
         
         if 'file_deletion' in self.results:
             print(f"File Deletion Rate: {self.results['file_deletion']['files_per_sec']:.2f} files/sec")
+        
+        if 'npm_install' in self.results:
+            print(f"\nnpm install (offline): {self.results['npm_install']['duration_sec']:.3f} sec")
+            print(f"  Files created: {self.results['npm_install']['files_created']}")
+            print(f"  Speed: {self.results['npm_install']['speed_formatted']}")
+        
+        if 'pip_install' in self.results:
+            print(f"\npip install (offline): {self.results['pip_install']['duration_sec']:.3f} sec")
+            print(f"  Files created: {self.results['pip_install']['files_created']}")
+            print(f"  Speed: {self.results['pip_install']['speed_formatted']}")
     
     def _calculate_statistics(self, values: List[float]) -> Dict:
         """Calculate mean and standard deviation for a list of values"""
@@ -496,6 +896,35 @@ class FileIOBenchmark:
             if 'avg_time_per_file_ms' in metrics['file_deletion']:
                 stats = self._calculate_statistics(metrics['file_deletion']['avg_time_per_file_ms'])
                 print(f"  Avg Time: {stats['mean']:.3f} ms ± {stats['std_dev']:.3f} ms")
+        
+        # Print real-world test results
+        print("\n" + "-" * 70)
+        print("REAL-WORLD TESTS (Package Managers)")
+        print("-" * 70)
+        
+        if 'npm_install' in metrics:
+            print(f"\nnpm install (offline):")
+            if 'duration_sec' in metrics['npm_install']:
+                stats = self._calculate_statistics(metrics['npm_install']['duration_sec'])
+                print(f"  Duration: {stats['mean']:.3f} sec ± {stats['std_dev']:.3f} sec")
+            if 'files_created' in metrics['npm_install']:
+                stats = self._calculate_statistics(metrics['npm_install']['files_created'])
+                print(f"  Files Created: {stats['mean']:.0f} ± {stats['std_dev']:.0f}")
+            if 'speed_bytes_per_sec' in metrics['npm_install']:
+                stats = self._calculate_statistics(metrics['npm_install']['speed_bytes_per_sec'])
+                print(f"  Speed: {self._format_speed(stats['mean'])} ± {self._format_speed(stats['std_dev'])}")
+        
+        if 'pip_install' in metrics:
+            print(f"\npip install (offline):")
+            if 'duration_sec' in metrics['pip_install']:
+                stats = self._calculate_statistics(metrics['pip_install']['duration_sec'])
+                print(f"  Duration: {stats['mean']:.3f} sec ± {stats['std_dev']:.3f} sec")
+            if 'files_created' in metrics['pip_install']:
+                stats = self._calculate_statistics(metrics['pip_install']['files_created'])
+                print(f"  Files Created: {stats['mean']:.0f} ± {stats['std_dev']:.0f}")
+            if 'speed_bytes_per_sec' in metrics['pip_install']:
+                stats = self._calculate_statistics(metrics['pip_install']['speed_bytes_per_sec'])
+                print(f"  Speed: {self._format_speed(stats['mean'])} ± {self._format_speed(stats['std_dev'])}")
     
     def run_multiple_benchmarks(self, num_runs: int = 5):
         """Run benchmark suite multiple times and aggregate results"""
@@ -574,7 +1003,7 @@ class FileIOBenchmark:
 def main():
     # Configure the amount of data per test (in GB)
     data_size_gb = 1.0
-    num_runs = 5
+    num_runs = 5  # Number of full benchmark suite iterations
     
     benchmark = FileIOBenchmark(data_size_gb=data_size_gb)
     benchmark.run_multiple_benchmarks(num_runs=num_runs)

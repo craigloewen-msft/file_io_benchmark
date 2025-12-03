@@ -1,8 +1,17 @@
 # File I/O Performance Benchmark
 
-A Python script to test file system I/O performance with various file sizes and operations.
+A Python script to test file system I/O performance with various file sizes and operations, including real-world package manager workloads.
 
-## Usage
+## Quick Start
+
+### First-time setup (with internet connection):
+
+```bash
+# Install dependencies and create offline caches
+python3 setup_caches.py
+```
+
+### Run benchmarks (works offline):
 
 ```bash
 python3 file_io_benchmark.py
@@ -10,9 +19,27 @@ python3 file_io_benchmark.py
 
 ## What It Tests
 
-- **Sequential Read/Write**: Throughput with different file sizes (10MB to 1GB)
+- **Sequential Read/Write**: Throughput with different file sizes (10KB to 500MB)
 - **Random Read/Write**: IOPS and latency with 4KB blocks
 - **Metadata Operations**: File creation and deletion speed
+- **Real-World Tests**:
+  - npm install (offline) - Installs a large set of popular packages including React, Angular, Vue, Next.js, TypeScript, Webpack, and more
+  - pip install (offline) - Installs requests, flask, and dependencies (~12 packages)
+
+## Setup
+
+The setup script downloads packages once to create offline caches:
+
+```bash
+python3 setup_caches.py
+```
+
+This creates a `benchmark_cache/` directory with:
+- `npm_cache/` - npm packages and metadata
+- `npm_test_project/` - package.json and package-lock.json
+- `pip_wheels/` - Python wheel files
+
+**Note**: You only need to run setup once. After that, benchmarks work completely offline.
 
 ## Configuration
 
