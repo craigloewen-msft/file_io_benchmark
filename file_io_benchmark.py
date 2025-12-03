@@ -224,23 +224,24 @@ class FileIOBenchmark:
         try:
             self.setup()
             
-            # Define test configurations - all tests write the same total amount
-            total_data_size = int(self.data_size_gb * 1024 * 1024 * 1024)
+            # Define test configurations with individual data sizes
+            # Format: (name, file_size, total_data_size_for_this_test)
             test_configs = [
-                ('Very Tiny Files (10 KB each)', 10 * 1024, total_data_size // (10 * 1024)),
-                ('Tiny Files (100 KB each)', 100 * 1024, total_data_size // (100 * 1024)),
-                ('Small Files (1 MB each)', 1 * 1024 * 1024, total_data_size // (1 * 1024 * 1024)),
-                ('Medium Files (10 MB each)', 10 * 1024 * 1024, total_data_size // (10 * 1024 * 1024)),
-                ('Large Files (100 MB each)', 100 * 1024 * 1024, total_data_size // (100 * 1024 * 1024)),
-                ('Very Large Files (500 MB each)', 500 * 1024 * 1024, total_data_size // (500 * 1024 * 1024)),
+                ('Very Tiny Files (10 KB each)', 10 * 1024, 25 * 1024 * 1024),
+                ('Tiny Files (100 KB each)', 100 * 1024, 100 * 1024 * 1024),  # 100 MB total
+                ('Small Files (1 MB each)', 1 * 1024 * 1024, 500 * 1024 * 1024),  # 500 MB total
+                ('Medium Files (10 MB each)', 10 * 1024 * 1024, int(self.data_size_gb * 1024 * 1024 * 1024)),
+                ('Large Files (100 MB each)', 100 * 1024 * 1024, int(self.data_size_gb * 1024 * 1024 * 1024)),
+                ('Very Large Files (500 MB each)', 500 * 1024 * 1024, int(self.data_size_gb * 1024 * 1024 * 1024)),
             ]
             
             # Sequential Write Tests
             print("\n" + "=" * 70)
-            print(f"SEQUENTIAL WRITE TESTS ({self.data_size_gb} GB total per test)")
+            print(f"SEQUENTIAL WRITE TESTS")
             print("=" * 70)
-            for name, size, num_files in test_configs:
-                print(f"\nTesting {name} ({num_files} file(s))...")
+            for name, size, total_data_size in test_configs:
+                num_files = total_data_size // size
+                print(f"\nTesting {name} ({num_files} file(s), {self._format_size(total_data_size)} total)...")
                 total_time = 0
                 total_bytes = 0
                 for i in range(num_files):
@@ -253,7 +254,7 @@ class FileIOBenchmark:
                     'duration_sec': total_time,
                     'speed_bytes_per_sec': avg_speed,
                     'speed_formatted': self._format_speed(avg_speed),
-                    'num_files': num_files,
+                    'file_size': size,
                     'total_bytes': total_bytes
                 }
                 print(f"  Total Duration: {total_time:.3f} seconds")
@@ -262,10 +263,11 @@ class FileIOBenchmark:
             
             # Sequential Read Tests
             print("\n" + "=" * 70)
-            print(f"SEQUENTIAL READ TESTS ({self.data_size_gb} GB total per test)")
+            print(f"SEQUENTIAL READ TESTS")
             print("=" * 70)
-            for name, size, num_files in test_configs:
-                print(f"\nTesting {name} ({num_files} file(s))...")
+            for name, size, total_data_size in test_configs:
+                num_files = total_data_size // size
+                print(f"\nTesting {name} ({num_files} file(s), {self._format_size(total_data_size)} total)...")
                 total_time = 0
                 total_bytes = 0
                 for i in range(num_files):
@@ -278,7 +280,7 @@ class FileIOBenchmark:
                     'duration_sec': total_time,
                     'speed_bytes_per_sec': avg_speed,
                     'speed_formatted': self._format_speed(avg_speed),
-                    'num_files': num_files,
+                    'file_size': size,
                     'total_bytes': total_bytes
                 }
                 print(f"  Total Duration: {total_time:.3f} seconds")
