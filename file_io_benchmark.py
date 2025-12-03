@@ -227,10 +227,12 @@ class FileIOBenchmark:
             # Define test configurations - all tests write the same total amount
             total_data_size = int(self.data_size_gb * 1024 * 1024 * 1024)
             test_configs = [
-                ('Small Files (10 MB each)', 10 * 1024 * 1024, total_data_size // (10 * 1024 * 1024)),
-                ('Medium Files (100 MB each)', 100 * 1024 * 1024, total_data_size // (100 * 1024 * 1024)),
-                ('Large Files (500 MB each)', 500 * 1024 * 1024, total_data_size // (500 * 1024 * 1024)),
-                ('Very Large Files (1 GB each)', 1024 * 1024 * 1024, total_data_size // (1024 * 1024 * 1024)),
+                ('Very Tiny Files (10 KB each)', 10 * 1024, total_data_size // (10 * 1024)),
+                ('Tiny Files (100 KB each)', 100 * 1024, total_data_size // (100 * 1024)),
+                ('Small Files (1 MB each)', 1 * 1024 * 1024, total_data_size // (1 * 1024 * 1024)),
+                ('Medium Files (10 MB each)', 10 * 1024 * 1024, total_data_size // (10 * 1024 * 1024)),
+                ('Large Files (100 MB each)', 100 * 1024 * 1024, total_data_size // (100 * 1024 * 1024)),
+                ('Very Large Files (500 MB each)', 500 * 1024 * 1024, total_data_size // (500 * 1024 * 1024)),
             ]
             
             # Sequential Write Tests
