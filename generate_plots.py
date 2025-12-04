@@ -125,7 +125,7 @@ def extract_file_operation_data(data, operation_type, metric_key):
     
     return {}
 
-def create_box_plot(all_data, title, ylabel, xlabel, output_filename, format_x_as_filesize=False):
+def create_box_plot(all_data, title, ylabel, xlabel, output_filename, format_x_as_filesize=False, show_median_values=True):
     """
     Create a box and whisker plot from the data.
     
@@ -136,6 +136,7 @@ def create_box_plot(all_data, title, ylabel, xlabel, output_filename, format_x_a
         xlabel: X-axis label
         output_filename: Output file path
         format_x_as_filesize: If True, format x-axis labels as file sizes
+        show_median_values: If True, display median values on the plot
     """
     fig, ax = plt.subplots(figsize=(12, 7))
     
@@ -153,7 +154,8 @@ def create_box_plot(all_data, title, ylabel, xlabel, output_filename, format_x_a
     width = 0.8 / num_tests  # Width of each box
     offset_start = -(num_tests - 1) * width / 2
     
-    for idx, (test_name, test_data) in enumerate(all_data.items()):
+    # Sort test names alphabetically for consistent legend ordering
+    for idx, (test_name, test_data) in enumerate(sorted(all_data.items())):
         positions = []
         data_to_plot = []
         
@@ -170,6 +172,13 @@ def create_box_plot(all_data, title, ylabel, xlabel, output_filename, format_x_a
                            medianprops=dict(color='red', linewidth=2),
                            whiskerprops=dict(linewidth=1.5),
                            capprops=dict(linewidth=1.5))
+            
+            # Add median values as text if requested
+            if show_median_values:
+                for pos, data in zip(positions, data_to_plot):
+                    median = np.median(data)
+                    ax.text(pos, median, f'{median:.1f}', 
+                           ha='center', va='bottom', fontsize=8, fontweight='bold')
     
     # Set labels and title
     ax.set_xlabel(xlabel, fontsize=12, fontweight='bold')
@@ -188,6 +197,78 @@ def create_box_plot(all_data, title, ylabel, xlabel, output_filename, format_x_a
     
     # Add grid
     ax.grid(True, alpha=0.3, linestyle='--')
+    
+    # Tight layout
+    plt.tight_layout()
+    
+    # Save the plot
+    plt.savefig(output_filename, dpi=300, bbox_inches='tight')
+    print(f"Saved: {output_filename}")
+    plt.close()
+
+def create_simple_box_plot(all_data, title, ylabel, output_filename, show_median_values=True):
+    """
+    Create a simple box and whisker plot with all data grouped by test name only.
+    
+    Args:
+        all_data: Dictionary mapping test_name -> {file_size/num_files: [values]}
+        title: Plot title
+        ylabel: Y-axis label
+        output_filename: Output file path
+        show_median_values: If True, display median values on the plot
+    """
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    # Prepare data for plotting - combine all values for each test
+    num_tests = len(all_data)
+    colors = plt.cm.Set3(np.linspace(0, 1, num_tests))
+    
+    positions = []
+    data_to_plot = []
+    test_labels = []
+    
+    # Sort test names alphabetically for consistent ordering
+    for idx, (test_name, test_data) in enumerate(sorted(all_data.items())):
+        # Combine all values across all x-positions (file sizes, etc.) for this test
+        all_values = []
+        for values_list in test_data.values():
+            all_values.extend(values_list)
+        
+        if all_values:
+            positions.append(idx)
+            data_to_plot.append(all_values)
+            test_labels.append(test_name)
+    
+    # Create box plots
+    if data_to_plot:
+        bp = ax.boxplot(data_to_plot, positions=positions, widths=0.6,
+                       patch_artist=True,
+                       boxprops=dict(alpha=0.7),
+                       medianprops=dict(color='red', linewidth=2),
+                       whiskerprops=dict(linewidth=1.5),
+                       capprops=dict(linewidth=1.5))
+        
+        # Color each box
+        for patch, color in zip(bp['boxes'], colors):
+            patch.set_facecolor(color)
+        
+        # Add median values as text if requested
+        if show_median_values:
+            for pos, data in zip(positions, data_to_plot):
+                median = np.median(data)
+                ax.text(pos, median, f'{median:.1f}', 
+                       ha='center', va='bottom', fontsize=8, fontweight='bold')
+    
+    # Set labels and title
+    ax.set_ylabel(ylabel, fontsize=12, fontweight='bold')
+    ax.set_title(title, fontsize=14, fontweight='bold')
+    
+    # Set x-axis ticks with test names
+    ax.set_xticks(positions)
+    ax.set_xticklabels(test_labels, rotation=45, ha='right')
+    
+    # Add grid
+    ax.grid(True, alpha=0.3, linestyle='--', axis='y')
     
     # Tight layout
     plt.tight_layout()
@@ -309,6 +390,96 @@ def main():
         "Files per Second",
         "Number of Files Deleted",
         output_folder / "file_deletion_performance.png"
+    )
+    
+    # 7. NPM Install Performance
+    npm_install_data = {}
+    for data in json_data_list:
+        test_name = data.get('name', 'Unknown')
+        aggregated_stats = data.get('aggregated_statistics', {})
+        npm_data = aggregated_stats.get('npm_install', {})
+        
+        if npm_data:
+            num_files = npm_data.get('files_created', {}).get('mean', 0)
+            speed_data = npm_data.get('speed_bytes_per_sec', {})
+            values = speed_data.get('values', [])
+            
+            if values:
+                # Convert bytes/sec to MB/sec
+                npm_install_data[test_name] = {int(num_files): [v / (1024 * 1024) for v in values]}
+    
+    create_simple_box_plot(
+        npm_install_data,
+        "NPM Install Performance",
+        "Speed (MB/s)",
+        output_folder / "npm_install_performance.png"
+    )
+    
+    # 8. Pip Install Performance
+    pip_install_data = {}
+    for data in json_data_list:
+        test_name = data.get('name', 'Unknown')
+        aggregated_stats = data.get('aggregated_statistics', {})
+        pip_data = aggregated_stats.get('pip_install', {})
+        
+        if pip_data:
+            num_packages = pip_data.get('packages_installed', {}).get('mean', 0)
+            speed_data = pip_data.get('speed_bytes_per_sec', {})
+            values = speed_data.get('values', [])
+            
+            if values:
+                # Convert bytes/sec to MB/sec
+                pip_install_data[test_name] = {int(num_packages): [v / (1024 * 1024) for v in values]}
+    
+    create_simple_box_plot(
+        pip_install_data,
+        "Pip Install Performance",
+        "Speed (MB/s)",
+        output_folder / "pip_install_performance.png"
+    )
+    
+    # 9. NPM Install Duration
+    npm_install_duration_data = {}
+    for data in json_data_list:
+        test_name = data.get('name', 'Unknown')
+        aggregated_stats = data.get('aggregated_statistics', {})
+        npm_data = aggregated_stats.get('npm_install', {})
+        
+        if npm_data:
+            num_files = npm_data.get('files_created', {}).get('mean', 0)
+            duration_data = npm_data.get('duration_sec', {})
+            values = duration_data.get('values', [])
+            
+            if values:
+                npm_install_duration_data[test_name] = {int(num_files): values}
+    
+    create_simple_box_plot(
+        npm_install_duration_data,
+        "NPM Install Duration",
+        "Duration (seconds)",
+        output_folder / "npm_install_duration.png"
+    )
+    
+    # 10. Pip Install Duration
+    pip_install_duration_data = {}
+    for data in json_data_list:
+        test_name = data.get('name', 'Unknown')
+        aggregated_stats = data.get('aggregated_statistics', {})
+        pip_data = aggregated_stats.get('pip_install', {})
+        
+        if pip_data:
+            num_packages = pip_data.get('packages_installed', {}).get('mean', 0)
+            duration_data = pip_data.get('duration_sec', {})
+            values = duration_data.get('values', [])
+            
+            if values:
+                pip_install_duration_data[test_name] = {int(num_packages): values}
+    
+    create_simple_box_plot(
+        pip_install_duration_data,
+        "Pip Install Duration",
+        "Duration (seconds)",
+        output_folder / "pip_install_duration.png"
     )
     
     print("\n✓ All plots generated successfully!")

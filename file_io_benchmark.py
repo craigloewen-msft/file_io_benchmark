@@ -18,9 +18,10 @@ import json
 
 
 class FileIOBenchmark:
-    def __init__(self, test_dir: str = "benchmark_temp", data_size_gb: float = 2.0):
+    def __init__(self, test_dir: str = "benchmark_temp", data_size_gb: float = 2.0, name: str = "default"):
         self.test_dir = Path(test_dir)
         self.data_size_gb = data_size_gb
+        self.name = name
         self.results = {}
         self.all_runs = []  # Store results from all runs
         self.cache_dir = Path("benchmark_cache")  # Directory for offline caches
@@ -954,7 +955,7 @@ class FileIOBenchmark:
     
     def _save_all_results(self):
         """Save all run results to JSON file"""
-        output_file = "benchmark_results.json"
+        output_file = f"benchmark_results_{self.name}.json"
         
         # Calculate aggregated statistics
         aggregated_stats = {}
@@ -988,6 +989,7 @@ class FileIOBenchmark:
                     }
         
         results_with_metadata = {
+            'name': self.name,
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
             'test_directory': str(self.test_dir.absolute()),
             'num_runs': len(self.all_runs),
@@ -1001,11 +1003,16 @@ class FileIOBenchmark:
         print(f"\n\nDetailed results from all runs saved to: {output_file}")
     
 def main():
+    import sys
+    
     # Configure the amount of data per test (in GB)
     data_size_gb = 1.0
     num_runs = 5  # Number of full benchmark suite iterations
     
-    benchmark = FileIOBenchmark(data_size_gb=data_size_gb)
+    # Get test name from command line argument, default to "default"
+    test_name = sys.argv[1] if len(sys.argv) > 1 else "default"
+    
+    benchmark = FileIOBenchmark(data_size_gb=data_size_gb, name=test_name)
     benchmark.run_multiple_benchmarks(num_runs=num_runs)
     print("\n" + "=" * 70)
     print("All benchmarks complete!")
