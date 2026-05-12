@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from bench_helpers import (
     add_common_args, build_container_run_cmd, bytes_to_mb, get_container_bin,
     get_platform_name, get_vm_process_name, print_success, run, run_capture,
-    stop_container_system, today_iso, wait_for_vm_exit,
+    stop_container_system, now_iso, wait_for_vm_exit,
 )
 
 IMAGE_TAG = "ram-overhead-bench:latest"
@@ -202,7 +202,7 @@ def main():
 
     bin_name = get_container_bin(PLATFORM_CONFIG)
     plat = get_platform_name(PLATFORM_CONFIG)
-    today = today_iso()
+    today = now_iso()
     script_dir = Path(__file__).resolve().parent
     output_file = script_dir / f"{plat}-ram-overhead-{today}.json"
     vm_label = get_vm_process_label()

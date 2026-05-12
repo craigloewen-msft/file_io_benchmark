@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime
 
 # ---------------------------------------------------------------------------
 # Platform / container binary
@@ -209,3 +209,12 @@ def build_container_run_cmd(bin_name, container_name, image_tag, run_args,
 def today_iso():
     """Return today's date as an ISO-8601 string."""
     return date.today().isoformat()
+
+
+def now_iso():
+    """Return the current local date and time as a filename-safe string.
+
+    Uses ``YYYY-MM-DD_HH-MM-SS`` (no colons) so the value is safe to embed
+    in filenames on Windows, macOS, and Linux.
+    """
+    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
