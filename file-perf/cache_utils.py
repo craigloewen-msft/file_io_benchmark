@@ -29,6 +29,12 @@ def _run_command(cmd: List[str], cwd: Optional[Path] = None,
     import time
     start_time = time.time()
     try:
+        # On Windows, resolve executables (e.g. npm -> npm.cmd) via shutil.which
+        # because subprocess.run with a list does not honor PATHEXT.
+        if cmd:
+            resolved = shutil.which(cmd[0])
+            if resolved:
+                cmd = [resolved] + list(cmd[1:])
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -251,7 +257,14 @@ def setup_git_cache(cache_dir: Optional[Path] = None) -> bool:
         # Remove existing repo if it exists
         if bare_repo_dir.exists():
             print(f"  Removing existing repository...")
-            shutil.rmtree(bare_repo_dir)
+            def _on_rm_error(func, path, exc_info):
+                # Git pack files are read-only on Windows; clear the bit and retry.
+                try:
+                    os.chmod(path, 0o700)
+                    func(path)
+                except Exception:
+                    raise
+            shutil.rmtree(bare_repo_dir, onerror=_on_rm_error)
         
         # Clone as bare repository (no working directory, just git data)
         cmd = ['git', 'clone', '--bare']
