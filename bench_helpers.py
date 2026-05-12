@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from datetime import date, datetime
+from datetime import datetime
 
 # ---------------------------------------------------------------------------
 # Platform / container binary
@@ -204,11 +204,6 @@ def build_container_run_cmd(bin_name, container_name, image_tag, run_args,
     cmd.append(image_tag)
     cmd += run_args
     return cmd
-
-
-def today_iso():
-    """Return today's date as an ISO-8601 string."""
-    return date.today().isoformat()
 
 
 def now_iso():
