@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from bench_helpers import (
     add_common_args, build_container_run_cmd, get_container_bin,
-    get_platform_name, print_success, run, today_iso,
+    get_platform_name, print_success, run, now_iso,
 )
 
 IMAGE_TAG = "cpu-stress-bench:latest"
@@ -49,7 +49,7 @@ def main():
 
     bin_name = get_container_bin(PLATFORM_CONFIG)
     plat = get_platform_name(PLATFORM_CONFIG)
-    today = today_iso()
+    today = now_iso()
     script_dir = Path(__file__).resolve().parent
     output_file = script_dir / f"{plat}-cpu-stress-{today}.json"
 

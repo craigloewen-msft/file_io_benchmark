@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from bench_helpers import (
     add_common_args, build_container_run_cmd, get_container_bin,
     get_platform_name, print_success, run, stop_container_system,
-    today_iso, wait_for_vm_exit,
+    now_iso, wait_for_vm_exit,
 )
 
 IMAGE_TAG = "startup-time-bench:latest"
@@ -77,7 +77,7 @@ def main():
 
     bin_name = get_container_bin(PLATFORM_CONFIG)
     plat = get_platform_name(PLATFORM_CONFIG)
-    today = today_iso()
+    today = now_iso()
     script_dir = Path(__file__).resolve().parent
     output_file = script_dir / f"{plat}-startup-time-{today}.json"
 
