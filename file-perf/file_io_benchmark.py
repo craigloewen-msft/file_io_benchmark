@@ -35,13 +35,10 @@ class FileIOBenchmark:
         self.name = name
         self.results = {}
         self.all_runs = []  # Store results from all runs
-        self.cache_dir = self.working_dir / "benchmark_cache"  # Directory for offline caches
+        self.cache_dir = self.script_dir / "benchmark_cache"  # Directory for offline caches
         
         # Ensure working directory exists
         self.working_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Copy benchmark_cache from script directory if it doesn't exist in working directory
-        self._ensure_cache_exists()
     
     def _drop_caches(self) -> bool:
         """Drop filesystem caches to ensure consistent benchmark results.
@@ -70,40 +67,6 @@ class FileIOBenchmark:
         else:
             return False
 
-    def _ensure_cache_exists(self):
-        """Copy benchmark_cache from script directory to working directory if needed"""
-        source_cache = self.script_dir / "benchmark_cache"
-
-        if not self.cache_dir.exists():
-            if source_cache.exists():
-                print(f"Copying benchmark_cache from {source_cache} to {self.cache_dir}...")
-                shutil.copytree(source_cache, self.cache_dir)
-                print(f"✓ benchmark_cache copied successfully")
-
-                # Set permissive permissions and ownership
-                print(f"Setting permissions on {self.cache_dir}...")
-                try:
-                    # Make all files and directories readable, writable, and executable by everyone
-                    subprocess.run(['chmod', '-R', '777', str(self.cache_dir)], check=False)
-
-                    # Try to change ownership to current user (may not be needed/possible in all environments)
-                    import pwd
-                    try:
-                        uid = os.getuid()
-                        gid = os.getgid()
-                        subprocess.run(['chown', '-R', f'{uid}:{gid}', str(self.cache_dir)], check=False)
-                    except:
-                        pass  # Ignore errors if chown fails (e.g., already correct owner)
-
-                    print(f"✓ Permissions set successfully")
-                except Exception as e:
-                    print(f"Warning: Could not set all permissions: {e}")
-            else:
-                print(f"Warning: benchmark_cache not found at {source_cache}")
-                print("Some tests may be skipped. Run setup_caches.py first to create the cache.")
-        else:
-            print(f"Using existing benchmark_cache at {self.cache_dir}")
-        
     def setup(self):
         """Create test directory"""
         if self.test_dir.exists():
