@@ -7,6 +7,8 @@ to measure storage performance characteristics.
 """
 
 import os
+import sys
+import platform
 import time
 import shutil
 import random
@@ -43,28 +45,44 @@ class FileIOBenchmark:
     def _drop_caches(self) -> bool:
         """Drop filesystem caches to ensure consistent benchmark results.
         
-        On Linux, this syncs the filesystem and drops page cache, dentries, and inodes.
-        Requires root privileges or sudo access.
+        Platform-specific behavior:
+        - Linux: syncs filesystem, then drops page cache/dentries/inodes via
+          /proc/sys/vm/drop_caches (requires root).
+        - macOS: uses the 'purge' command (requires sudo or root).
+        - Other: returns False with a warning.
         
         Returns:
             True if cache was successfully dropped, False otherwise.
         """
         print("  Dropping filesystem caches...")
-            # First sync to flush any pending writes
+        # First sync to flush any pending writes
         subprocess.run(['sync'], check=True)
-        
-        # Try to drop caches (requires root)
-        # echo 3 drops page cache, dentries, and inodes
-        result = subprocess.run(
-            [ 'sh', '-c', 'echo 3 > /proc/sys/vm/drop_caches'],
-            capture_output=True,
-            text=True
-        )
-            
+
+        system = platform.system()
+
+        if system == "Linux":
+            result = subprocess.run(
+                ['sh', '-c', 'echo 3 > /proc/sys/vm/drop_caches'],
+                capture_output=True,
+                text=True
+            )
+        elif system == "Darwin":
+            result = subprocess.run(
+                ['purge'],
+                capture_output=True,
+                text=True
+            )
+        else:
+            print("  WARNING: Cache dropping is not supported on this platform.")
+            print("  Read benchmark results may reflect page cache, not actual I/O speed.")
+            return False
+
         if result.returncode == 0:
             print("  Filesystem caches dropped successfully.")
             return True
         else:
+            print("  WARNING: Failed to drop filesystem caches (insufficient privileges?).")
+            print("  Read benchmark results may reflect page cache, not actual I/O speed.")
             return False
 
     def setup(self):
@@ -128,9 +146,16 @@ class FileIOBenchmark:
         with open(filepath, 'wb') as f:
             for _ in range(blocks_to_write):
                 f.write(data_block)
+            f.flush()
+            os.fsync(f.fileno())
         
-        # Clear file cache by reopening
-        # Note: True cache clearing requires OS-specific commands
+        # Drop page cache so we measure real I/O, not RAM speed
+        if not self._drop_caches():
+            # Fallback: use posix_fadvise to evict this file from cache
+            if hasattr(os, 'posix_fadvise'):
+                fd = os.open(str(filepath), os.O_RDONLY)
+                os.posix_fadvise(fd, 0, file_size, os.POSIX_FADV_DONTNEED)
+                os.close(fd)
         
         start_time = time.time()
         with open(filepath, 'rb') as f:
@@ -192,6 +217,15 @@ class FileIOBenchmark:
         with open(filepath, 'wb') as f:
             data = self._generate_data(file_size)
             f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        
+        # Drop page cache so we measure real I/O, not RAM speed
+        if not self._drop_caches():
+            if hasattr(os, 'posix_fadvise'):
+                fd = os.open(str(filepath), os.O_RDONLY)
+                os.posix_fadvise(fd, 0, file_size, os.POSIX_FADV_DONTNEED)
+                os.close(fd)
         
         max_offset = file_size - block_size
         
@@ -953,7 +987,10 @@ class FileIOBenchmark:
             print(f"{'#' * 70}\n")
 
             # Drop filesystem caches before each run for consistent results
-            self._drop_caches()
+            cache_dropped = self._drop_caches()
+            if not cache_dropped and i == 0:
+                print("\n  *** NOTE: Running without system-wide cache dropping. ***")
+                print("  *** Per-file cache eviction will still be attempted for read tests. ***\n")
 
             self.setup()
             run_results = self.run_benchmark_suite(selected_tests=selected_tests)
